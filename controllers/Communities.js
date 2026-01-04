@@ -8,12 +8,28 @@ import { Op } from "sequelize";
 
 export const getCommunities = async(req, res) => {
     try {
+        const { search, category } = req.query; 
+        
+        let whereCondition = {};
+
+        if (search) {
+            whereCondition.nama_komunitas = {
+                [Op.like]: `%${search}%`
+            };
+        }
+
+        if (category && category !== "Semua") {
+            whereCondition.kategori = category;
+        }
+
         const response = await Communities.findAll({
+            where: whereCondition, 
             include:[{
                 model: Users,
                 attributes:['username','email']
             }]
         });
+        
         res.json(response);
     } catch (error) {
         res.status(500).json({msg: error.message});

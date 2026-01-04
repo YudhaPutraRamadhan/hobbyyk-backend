@@ -15,9 +15,18 @@ const Communities = db.define('communities', {
         allowNull: false
     },
     kategori: {
-        type: DataTypes.STRING,
-        allowNull: false
-    },
+    type: DataTypes.ENUM(
+        'Olahraga', 
+        'Musik', 
+        'Seni', 
+        'Teknologi', 
+        'Game', 
+        'Hobby', 
+        'Edukasi', 
+        'Lainnya'
+    ),
+    allowNull: false
+},
     deskripsi: {
         type: DataTypes.TEXT
     },
