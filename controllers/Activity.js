@@ -37,11 +37,16 @@ export const getActivityById = async (req, res) => {
 export const createActivity = async (req, res) => {
     const { judul_kegiatan, deskripsi, lokasi, tanggal, waktu, communityId } = req.body;
 
-    try {
-        const fileNames = (req.files && req.files.length > 0) 
-            ? req.files.map(file => file.filename) 
-            : []; 
+    if (!judul_kegiatan || !deskripsi || !lokasi || !tanggal || !waktu || !communityId) {
+        return res.status(400).json({ msg: "Semua data aktivitas wajib diisi" });
+    }
 
+    if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ msg: "Mohon unggah setidaknya satu foto kegiatan" });
+    }
+
+    try {
+        const fileNames = req.files.map(file => file.filename);
         const fotoString = JSON.stringify(fileNames);
 
         await Activities.create({
@@ -56,7 +61,8 @@ export const createActivity = async (req, res) => {
 
         res.status(201).json({ msg: "Aktivitas Berhasil Dibuat" });
     } catch (error) {
-        res.status(500).json({ msg: error.message });
+        console.log(error);
+        res.status(500).json({ msg: "Gagal membuat aktivitas, terjadi kesalahan server" });
     }
 }
 
@@ -65,14 +71,14 @@ export const updateActivity = async (req, res) => {
         const activity = await Activities.findOne({
             where: { id: req.params.id }
         });
-        if (!activity) return res.status(404).json({ msg: "Data tidak ditemukan" });
+        if (!activity) return res.status(404).json({ msg: "Data aktivitas tidak ditemukan" });
 
         let fotoString = activity.foto_kegiatan; 
 
         if (req.files && req.files.length > 0) {
             const oldImages = JSON.parse(activity.foto_kegiatan || "[]");
             oldImages.forEach(imageName => {
-                const filepath = `./public/uploads/${imageName}`;
+                const filepath = path.join("./public/uploads", imageName);
                 if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
             });
 
@@ -82,8 +88,16 @@ export const updateActivity = async (req, res) => {
 
         const { judul_kegiatan, deskripsi, lokasi, tanggal, waktu } = req.body;
 
+        if (!judul_kegiatan || !lokasi || !tanggal || !waktu) {
+            return res.status(400).json({ msg: "Data utama tidak boleh dikosongkan" });
+        }
+
         await Activities.update({
-            judul_kegiatan, deskripsi, lokasi, tanggal, waktu, 
+            judul_kegiatan, 
+            deskripsi, 
+            lokasi, 
+            tanggal, 
+            waktu, 
             foto_kegiatan: fotoString
         }, {
             where: { id: req.params.id }
@@ -91,7 +105,8 @@ export const updateActivity = async (req, res) => {
 
         res.status(200).json({ msg: "Aktivitas Berhasil Diupdate" });
     } catch (error) {
-        res.status(500).json({ msg: error.message });
+        console.log(error);
+        res.status(500).json({ msg: "Gagal memperbarui aktivitas" });
     }
 }
 

@@ -89,38 +89,51 @@ export const getCommunityById = async(req, res) => {
 }
 
 export const createCommunity = async(req, res) => {
-    if(!req.files || !req.files['file']) return res.status(400).json({msg: "Mohon upload logo komunitas"});
+    if(!req.files || !req.files['file']) {
+        return res.status(400).json({msg: "Mohon upload logo komunitas"});
+    }
 
-    const namaKomunitas = req.body.nama_komunitas;
-    const kategori = req.body.kategori;
-    const deskripsi = req.body.deskripsi;
-    const lokasi = req.body.lokasi;
-    const kontak = req.body.kontak;
-    const linkGrup = req.body.link_grup;
+    const { nama_komunitas, kategori, deskripsi, lokasi, kontak, link_grup } = req.body;
 
-    const fileLogo = req.files['file'][0].filename;
+    if(!nama_komunitas || !kategori || !deskripsi || !lokasi) {
+        return res.status(400).json({msg: "Data utama (Nama, Kategori, Deskripsi, Lokasi) tidak boleh kosong"});
+    }
 
-    let fileBanner = null;
-    if(req.files['banner']){
-        fileBanner = req.files['banner'][0].filename;
+    if (link_grup && link_grup.trim() !== "") {
+        const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/;
+        if (!urlPattern.test(link_grup)) {
+            return res.status(400).json({msg: "Format link grup tidak valid"});
+        }
     }
 
     try {
+        const exist = await Communities.findOne({
+            where: { nama_komunitas: nama_komunitas }
+        });
+        if(exist) return res.status(400).json({msg: "Nama komunitas sudah digunakan, cari nama lain"});
+
+        const fileLogo = req.files['file'][0].filename;
+        let fileBanner = null;
+        if(req.files['banner']){
+            fileBanner = req.files['banner'][0].filename;
+        }
+
         await Communities.create({
-            nama_komunitas: namaKomunitas,
+            nama_komunitas: nama_komunitas,
             kategori: kategori,
             deskripsi: deskripsi,
             lokasi: lokasi,
-            kontak: kontak,
-            link_grup: linkGrup,
+            kontak: kontak || "",
+            link_grup: link_grup || "",
             foto_url: fileLogo,
             banner_url: fileBanner, 
             userId: req.userId
         });
+
         res.status(201).json({msg: "Komunitas Berhasil Dibuat"});
     } catch (error) {
         console.log(error);
-        res.status(500).json({msg: error.message});
+        res.status(500).json({msg: "Terjadi kesalahan pada server saat membuat komunitas"});
     }
 }
 
@@ -194,15 +207,41 @@ export const updateCommunityByAdmin = async(req, res) => {
         const community = await Communities.findOne({
             where: { id: req.params.id }
         });
+
         if(!community) return res.status(404).json({msg: "Komunitas tidak ditemukan"});
 
+        if(community.userId !== req.userId && req.role !== "superadmin") {
+            return res.status(403).json({msg: "Akses ditolak: Anda bukan pemilik komunitas ini"});
+        }
+
+        const { nama_komunitas, lokasi, deskripsi, kategori, kontak, link_grup } = req.body;
+
+        if(!nama_komunitas || !lokasi || !deskripsi || !kategori) {
+            return res.status(400).json({msg: "Nama, Lokasi, Deskripsi, dan Kategori wajib diisi"});
+        }
+
+        if (link_grup && link_grup.trim() !== "") {
+            const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([\/\w .-]*)*\/?$/;
+            if (!urlPattern.test(link_grup)) {
+                return res.status(400).json({msg: "Format link grup tidak valid (harus berupa URL)"});
+            }
+        }
+
+        const communityExist = await Communities.findOne({
+            where: {
+                nama_komunitas: nama_komunitas,
+                id: { [Op.ne]: community.id }
+            }
+        });
+        if(communityExist) return res.status(400).json({msg: "Nama komunitas sudah digunakan oleh komunitas lain"});
+
         let updateData = {
-            nama_komunitas: req.body.nama_komunitas,
-            lokasi: req.body.lokasi,
-            deskripsi: req.body.deskripsi,
-            kategori: req.body.kategori,
-            kontak: req.body.kontak,
-            link_grup: req.body.link_grup
+            nama_komunitas,
+            lokasi,
+            deskripsi,
+            kategori,
+            kontak: kontak || "",
+            link_grup: link_grup || ""
         };
 
         if (req.files && req.files['file']) {
@@ -210,8 +249,8 @@ export const updateCommunityByAdmin = async(req, res) => {
             updateData.foto_url = newLogoFileName;
 
             if(community.foto_url) {
-                 const oldPath = path.join("./public/uploads", community.foto_url);
-                 if(fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+                const oldPath = path.join("./public/uploads", community.foto_url);
+                if(fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
             }
         }
 
@@ -229,10 +268,10 @@ export const updateCommunityByAdmin = async(req, res) => {
             where:{ id: community.id }
         });
 
-        res.status(200).json({msg: "Komunitas berhasil diupdate (Teks & Gambar)"});
+        res.status(200).json({msg: "Komunitas berhasil diperbarui"});
     } catch (error) {
         console.log(error);
-        res.status(500).json({msg: error.message});
+        res.status(500).json({msg: "Terjadi kesalahan server saat memperbarui komunitas"});
     }
 }
 

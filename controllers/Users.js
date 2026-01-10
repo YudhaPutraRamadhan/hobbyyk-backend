@@ -4,6 +4,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
 import fs from "fs";
+import validator from "validator";
 import path from "path";
 
 const transporter = nodemailer.createTransport({
@@ -31,16 +32,20 @@ export const Register = async(req, res) => {
     if(password !== confPassword) return res.status(400).json({msg: "Password dan Confirm Password tidak cocok"});
     
     try {
-        const userExist = await Users.findOne({ where: { email: email } });
+        const emailExist = await Users.findOne({ where: { email: email } });
+        if(emailExist && emailExist.is_verified) {
+            return res.status(400).json({msg: "Email sudah digunakan"});
+        }
+
+        const usernameExist = await Users.findOne({ where: { username: username } });
+        if(usernameExist) {
+            return res.status(400).json({msg: "Username sudah digunakan"});
+        }
         
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
         const otpExpiration = new Date(Date.now() + 5 * 60 * 1000);
 
-        if(userExist) {
-            if(userExist.is_verified) {
-                return res.status(400).json({msg: "Email sudah digunakan"});
-            } 
-            
+        if(emailExist && !emailExist.is_verified) {
             const salt = await bcrypt.genSalt();
             const hashPassword = await bcrypt.hash(password, salt);
             
@@ -297,6 +302,26 @@ export const updateProfile = async (req, res) => {
         const user = await Users.findOne({ where: { id: req.userId } });
         if (!user) return res.status(404).json({ msg: "User tidak ditemukan" });
 
+        const { username, bio, no_hp } = req.body;
+
+        if (username !== user.username) {
+            const usernameExists = await Users.findOne({ where: { username: username } });
+            if (usernameExists) return res.status(400).json({ msg: "Username sudah digunakan" });
+        }
+        if (bio && bio.length > 150) {
+            return res.status(400).json({ msg: "Bio maksimal 150 karakter" });
+        }
+
+        if (no_hp) {
+            const phoneRegex = /^\d+$/;
+            if (!phoneRegex.test(no_hp)) {
+                return res.status(400).json({ msg: "Nomor HP hanya boleh berisi angka" });
+            }
+            if (no_hp.length < 10 || no_hp.length > 13) {
+                return res.status(400).json({ msg: "Nomor HP harus antara 10 sampai 13 digit" });
+            }
+        }
+
         let fileName = user.profile_pic;
         
         if (req.files && req.files.profile_pic) {
@@ -309,8 +334,6 @@ export const updateProfile = async (req, res) => {
             fileName = file.filename;
         }
 
-        const { username, bio, no_hp } = req.body;
-
         await Users.update({
             username: username,
             bio: bio,
@@ -322,7 +345,7 @@ export const updateProfile = async (req, res) => {
 
         res.status(200).json({ msg: "Profil berhasil diperbarui" });
     } catch (error) {
-        res.status(500).json({ msg: error.message });
+        res.status(500).json({ msg: "Terjadi kesalahan server: " + error.message });
     }
 };
 
@@ -351,10 +374,16 @@ export const reqChangePassOtp = async (req, res) => {
 export const verifyChangePass = async (req, res) => {
     const { otp, newPassword, confPassword } = req.body;
 
-    if (newPassword !== confPassword) return res.status(400).json({ msg: "Password dan Confirm Password tidak cocok" });
+    if (!newPassword || newPassword.length < 8) {
+        return res.status(400).json({ msg: "Password minimal 8 karakter" });
+    }
+    if (newPassword !== confPassword) {
+        return res.status(400).json({ msg: "Password dan Confirm Password tidak cocok" });
+    }
 
     try {
         const user = await Users.findOne({ where: { id: req.userId } });
+        if (!user) return res.status(404).json({ msg: "User tidak ditemukan" });
 
         if (user.otp !== otp || new Date() > new Date(user.otp_expiration)) {
             return res.status(400).json({ msg: "OTP salah atau kadaluarsa" });
@@ -377,16 +406,19 @@ export const verifyChangePass = async (req, res) => {
 
 export const reqChangeEmailOtp = async (req, res) => {
     const { newEmail } = req.body;
-    if (!newEmail) return res.status(400).json({ msg: "Email baru wajib diisi" });
+
+    if (!newEmail || !validator.isEmail(newEmail)) {
+        return res.status(400).json({ msg: "Format email tidak valid" });
+    }
 
     try {
         const checkEmail = await Users.findOne({ where: { email: newEmail } });
         if (checkEmail) return res.status(400).json({ msg: "Email sudah digunakan user lain" });
 
         const user = await Users.findOne({ where: { id: req.userId } });
-
+        
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
-        const expiration = new Date(new Date().getTime() + 5 * 60000);
+        const expiration = new Date(Date.now() + 5 * 60000);
 
         await Users.update({ otp: otpCode, otp_expiration: expiration }, { where: { id: user.id } });
 
@@ -406,12 +438,19 @@ export const reqChangeEmailOtp = async (req, res) => {
 export const verifyChangeEmail = async (req, res) => {
     const { otp, newEmail } = req.body;
 
+    if (!newEmail || !validator.isEmail(newEmail)) {
+        return res.status(400).json({ msg: "Format email tidak valid" });
+    }
+
     try {
         const user = await Users.findOne({ where: { id: req.userId } });
 
         if (user.otp !== otp || new Date() > new Date(user.otp_expiration)) {
             return res.status(400).json({ msg: "OTP salah atau kadaluarsa" });
         }
+
+        const emailTaken = await Users.findOne({ where: { email: newEmail } });
+        if (emailTaken) return res.status(400).json({ msg: "Email sudah digunakan user lain" });
 
         await Users.update({ 
             email: newEmail,
@@ -429,15 +468,18 @@ export const requestAdminAccount = async (req, res) => {
     const { username, email } = req.body; 
 
     if (!username || !email) return res.status(400).json({ msg: "Username dan Email wajib diisi" });
+    
+    const emailRegexp = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    if(!emailRegexp.test(email)) return res.status(400).json({ msg: "Format email tidak valid" });
 
     try {
-        const existingUser = await Users.findOne({
-            where: { email: email }
-        });
+        const existingUser = await Users.findOne({ where: { email: email } });
         if (existingUser) return res.status(400).json({ msg: "Email ini sudah terdaftar di sistem!" });
 
-        const randomPassword = Math.floor(100000 + Math.random() * 900000).toString();
+        const existingUsername = await Users.findOne({ where: { username: username } });
+        if (existingUsername) return res.status(400).json({ msg: "Username sudah digunakan, cari nama lain" });
 
+        const randomPassword = Math.floor(100000 + Math.random() * 900000).toString();
         const salt = await bcrypt.genSalt();
         const hashPassword = await bcrypt.hash(randomPassword, salt);
 

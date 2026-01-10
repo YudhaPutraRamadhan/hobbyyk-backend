@@ -1,5 +1,5 @@
 import express from "express";
-import { getCommunities, getCommunityById, getMyCommunity, createCommunity, deleteCommunity, updateCommunity, updateCommunityByAdmin } from "../controllers/Communities.js";
+import { getCommunities, getCommunityById, getMyCommunity, createCommunity, deleteCommunity, updateCommunityByAdmin } from "../controllers/Communities.js";
 import { verifyToken } from "../middleware/VerifyToken.js";
 import { toggleLike } from "../controllers/Likes.js";
 import { toggleJoinCommunity } from "../controllers/Members.js";
